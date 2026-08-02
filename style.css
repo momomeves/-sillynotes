@@ -60,8 +60,6 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    overflow-wrap: break-word;
-    word-break: break-word;
 }
 
 #tc_topic_input {
@@ -222,6 +220,7 @@
     background: var(--black30a, rgba(0, 0, 0, 0.35));
     border-radius: 10px;
     padding: 10px 12px;
+    overflow-wrap: break-word;
 }
 
 /* --- Превью перед сохранением --- */
@@ -247,6 +246,7 @@
     border-bottom: 1px solid var(--SmartThemeBorderColor, #555);
     padding: 6px 0;
     margin-bottom: 10px;
+    overflow-wrap: break-word;
 }
 
 .tc-newspaper-article {
@@ -261,6 +261,7 @@
     border-radius: 10px;
     padding: 10px 12px;
     margin-bottom: 12px;
+    overflow-wrap: break-word;
 }
 
 .tc-newspaper-boxes {
@@ -278,6 +279,7 @@
     padding: 8px 10px;
     font-size: 0.9em;
     break-inside: avoid;
+    overflow-wrap: break-word;
 }
 
 .tc-newspaper-box-heading {
