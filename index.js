@@ -13,13 +13,12 @@ const extensionName = currentFolderPath.substring(currentFolderPath.lastIndexOf(
 
 const EXTENSION_PROMPT_KEY = "town_crier_last_entry";
 const EXTENSION_PROMPT_DEPTH = 4;
-const HISTORY_LIMIT = 20;
+const HISTORY_LIMIT = 10;
 
 const defaultSettings = {
     includeContext: true,
     contextMessages: 5,
     customInstructions: "",
-    includeLastEntryInContext: false,
 };
 
 const GENRES = {
@@ -66,7 +65,6 @@ function ensureSettings() {
     if (settings.includeContext === undefined) settings.includeContext = defaultSettings.includeContext;
     if (settings.contextMessages === undefined) settings.contextMessages = defaultSettings.contextMessages;
     if (settings.customInstructions === undefined) settings.customInstructions = defaultSettings.customInstructions;
-    if (settings.includeLastEntryInContext === undefined) settings.includeLastEntryInContext = defaultSettings.includeLastEntryInContext;
     if (!settings.historyByChat) settings.historyByChat = {};
 
     return settings;
@@ -77,40 +75,110 @@ function getChatKey() {
     return String(context.groupId || context.chatId || "no-chat");
 }
 
-function getHistory() {
+// Возвращает { entries, includeAllByDefault } для текущего чата, попутно
+// приводя данные к актуальной форме: старый формат (простой массив без
+// метаданных) оборачивается, а у записей без pinned/includedInContext
+// (созданных до появления этих полей) они безопасно доводятся до false.
+function getChatBucket(key) {
     const settings = ensureSettings();
-    const key = getChatKey();
-    if (!settings.historyByChat[key]) settings.historyByChat[key] = [];
-    return settings.historyByChat[key];
+    let bucket = settings.historyByChat[key];
+
+    if (!bucket) {
+        bucket = { entries: [], includeAllByDefault: false };
+        settings.historyByChat[key] = bucket;
+    } else if (Array.isArray(bucket)) {
+        bucket = { entries: bucket, includeAllByDefault: false };
+        settings.historyByChat[key] = bucket;
+    }
+
+    bucket.entries.forEach((entry) => {
+        if (entry.pinned === undefined) entry.pinned = false;
+        if (entry.includedInContext === undefined) entry.includedInContext = false;
+    });
+
+    return bucket;
 }
 
+function getHistory() {
+    return getChatBucket(getChatKey()).entries;
+}
+
+function recomputeIncludeAllDefault(key) {
+    const bucket = getChatBucket(key);
+    bucket.includeAllByDefault = bucket.entries.length > 0 && bucket.entries.every((e) => e.includedInContext);
+    return bucket.includeAllByDefault;
+}
+
+function hasRoomForNewEntry() {
+    const bucket = getChatBucket(getChatKey());
+    return bucket.entries.length < HISTORY_LIMIT || bucket.entries.some((e) => !e.pinned);
+}
+
+// Кладёт новую запись в начало истории текущего чата. Если лимит достигнут,
+// освобождает место, удаляя самую старую НЕзакреплённую запись. Предполагается,
+// что hasRoomForNewEntry() уже проверен заранее (до генерации у модели).
 function addEntryToHistory(entry) {
-    const history = getHistory();
-    history.unshift(entry);
-    history.length = Math.min(history.length, HISTORY_LIMIT);
+    const bucket = getChatBucket(getChatKey());
+
+    if (bucket.entries.length >= HISTORY_LIMIT) {
+        for (let i = bucket.entries.length - 1; i >= 0; i--) {
+            if (!bucket.entries[i].pinned) {
+                bucket.entries.splice(i, 1);
+                break;
+            }
+        }
+    }
+
+    bucket.entries.unshift(entry);
+    recomputeIncludeAllDefault(getChatKey());
     saveSettingsDebounced();
 }
 
 function removeEntryFromHistory(entryId) {
-    const settings = ensureSettings();
     const key = getChatKey();
-    settings.historyByChat[key] = (settings.historyByChat[key] || []).filter((e) => e.id !== entryId);
+    const bucket = getChatBucket(key);
+    bucket.entries = bucket.entries.filter((e) => e.id !== entryId);
+    recomputeIncludeAllDefault(key);
     saveSettingsDebounced();
 }
 
 function clearHistory() {
-    const settings = ensureSettings();
-    settings.historyByChat[getChatKey()] = [];
+    const bucket = getChatBucket(getChatKey());
+    bucket.entries = [];
+    bucket.includeAllByDefault = false;
     saveSettingsDebounced();
+}
+
+function setEntryPinned(entryId, pinned) {
+    const entry = getHistory().find((e) => e.id === entryId);
+    if (!entry) return;
+    entry.pinned = pinned;
+    saveSettingsDebounced();
+}
+
+function setEntryIncluded(entryId, included) {
+    const key = getChatKey();
+    const entry = getHistory().find((e) => e.id === entryId);
+    if (!entry) return;
+    entry.includedInContext = included;
+    recomputeIncludeAllDefault(key);
+    saveSettingsDebounced();
+    syncExtensionPrompt();
+    refreshIncludeAllCheckbox();
+}
+
+function refreshIncludeAllCheckbox() {
+    const bucket = getChatBucket(getChatKey());
+    $("#tc_include_all_default").prop("checked", bucket.includeAllByDefault);
 }
 
 function loadSettingsUi() {
     const settings = ensureSettings();
     $("#tc_include_context").prop("checked", settings.includeContext);
     $("#tc_context_messages").val(settings.contextMessages);
-    $("#tc_include_last_entry").prop("checked", settings.includeLastEntryInContext);
     $("#tc_custom_instructions").val(settings.customInstructions);
     updateContextMessagesDisabled();
+    refreshIncludeAllCheckbox();
 }
 
 function updateContextMessagesDisabled() {
@@ -132,10 +200,22 @@ function onContextMessagesInput(event) {
     saveSettingsDebounced();
 }
 
-function onIncludeLastEntryInput(event) {
-    ensureSettings().includeLastEntryInContext = Boolean($(event.target).prop("checked"));
+// Мастер-галочка "выбрать всё": принудительно проставляет/снимает
+// includedInContext у всех записей текущего чата и запоминает это как
+// значение по умолчанию для будущих записей этого чата.
+function onIncludeAllDefaultInput(event) {
+    const checked = Boolean($(event.target).prop("checked"));
+    const key = getChatKey();
+    const bucket = getChatBucket(key);
+
+    bucket.entries.forEach((e) => {
+        e.includedInContext = checked;
+    });
+    bucket.includeAllByDefault = checked;
     saveSettingsDebounced();
     syncExtensionPrompt();
+
+    if ($("#tc_overlay").length) renderEntryViewer();
 }
 
 function onCustomInstructionsInput(event) {
@@ -185,23 +265,27 @@ function escapeHtml(text) {
     return $("<div>").text(text).html();
 }
 
-// Вписывает последнюю запись глашатая в промпт основного чата как фоновую
-// заметку (тем же механизмом, что использует Author's Note), либо снимает её,
-// если тумблер выключен или записей больше нет.
+// Вписывает в промпт основного чата все записи текущего чата, у которых стоит
+// галочка "учитывать в чате" (тем же механизмом, что использует Author's Note),
+// либо снимает вставку, если ни одна запись не отмечена.
 function syncExtensionPrompt() {
     const context = getContext();
     if (typeof context.setExtensionPrompt !== "function") return;
 
-    const settings = ensureSettings();
-    const latest = settings.includeLastEntryInContext ? getHistory()[0] : null;
+    const included = getHistory().filter((e) => e.includedInContext);
 
-    if (!latest) {
+    if (included.length === 0) {
         context.setExtensionPrompt(EXTENSION_PROMPT_KEY, "", extension_prompt_types.NONE, EXTENSION_PROMPT_DEPTH);
         return;
     }
 
-    const genre = GENRES[latest.genre] || GENRES.notice;
-    const text = `[Городская молва (необязательный фоновый штрих для атмосферы, ${genre.label.toLowerCase()}): ${latest.text}]`;
+    const lines = [...included]
+        .reverse() // от старых к новым — читается как хроника, а не как случайный набор
+        .map((e) => {
+            const genre = GENRES[e.genre] || GENRES.notice;
+            return `— (${genre.label}) ${e.text}`;
+        });
+    const text = `[Городская молва (необязательные фоновые штрихи для атмосферы):\n${lines.join("\n")}]`;
 
     context.setExtensionPrompt(
         EXTENSION_PROMPT_KEY,
@@ -226,30 +310,40 @@ function renderEntryViewer() {
     const entry = history[viewIndex];
     const genre = GENRES[entry.genre] || GENRES.notice;
     const dateLabel = new Date(entry.timestamp).toLocaleString();
+    const number = history.length - viewIndex; // самая свежая запись = наибольший номер
 
     $area.html(`
         <div class="tc-entry-viewer">
             <div class="tc-pager">
                 <button type="button" class="tc-pager-btn" data-dir="-1" title="Более свежая запись" ${viewIndex <= 0 ? "disabled" : ""}><i class="fa-solid fa-chevron-left"></i></button>
-                <span class="tc-pager-count">${viewIndex + 1} из ${history.length}</span>
+                <span class="tc-pager-count">${number} из ${history.length}</span>
                 <button type="button" class="tc-pager-btn" data-dir="1" title="Более старая запись" ${viewIndex >= history.length - 1 ? "disabled" : ""}><i class="fa-solid fa-chevron-right"></i></button>
                 <span class="tc-pager-spacer"></span>
                 <button type="button" id="tc_entry_delete" title="Удалить эту запись"><i class="fa-solid fa-trash"></i></button>
                 <button type="button" id="tc_history_clear" title="Очистить всю историю"><i class="fa-solid fa-trash-can"></i></button>
             </div>
-            <div class="tc-result ${genre.cssClass}" data-entry-id="${entry.id}" title="Нажмите, чтобы скопировать">
+            <div class="tc-result ${genre.cssClass}" data-entry-id="${entry.id}">
                 <div class="tc-result-header" style="color:${genre.color}">
                     <i class="fa-solid ${genre.icon}"></i>
                     <span>${genre.label}</span>
                     <span class="tc-result-time">${escapeHtml(dateLabel)}</span>
                 </div>
-                <div class="tc-result-body">${escapeHtml(entry.text).replace(/\n/g, "<br>")}</div>
+                <div class="tc-entry-flags">
+                    <label class="tc-flag"><input type="checkbox" class="tc-flag-pin" ${entry.pinned ? "checked" : ""} /> 📌 Закреплено</label>
+                    <label class="tc-flag"><input type="checkbox" class="tc-flag-include" ${entry.includedInContext ? "checked" : ""} /> 🗨️ Учитывать в чате</label>
+                </div>
+                <div class="tc-result-body" title="Нажмите, чтобы скопировать">${escapeHtml(entry.text).replace(/\n/g, "<br>")}</div>
             </div>
         </div>
     `);
 }
 
 async function onGenerateClick(genreKey) {
+    if (!hasRoomForNewEntry()) {
+        toastr.warning(`Лимит в ${HISTORY_LIMIT} записей достигнут, и все они закреплены. Снимите закрепление хотя бы с одной, чтобы сгенерировать новую.`);
+        return;
+    }
+
     const topic = $("#tc_topic_input").val()?.trim();
     const $area = $("#tc_generate_area");
 
@@ -257,15 +351,21 @@ async function onGenerateClick(genreKey) {
 
     try {
         const text = await generateContent(genreKey, topic);
+        const includeByDefault = getChatBucket(getChatKey()).includeAllByDefault;
+
         addEntryToHistory({
             id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             genre: genreKey,
             topic: topic || "",
             text,
             timestamp: Date.now(),
+            pinned: false,
+            includedInContext: includeByDefault,
         });
+
         viewIndex = 0;
         syncExtensionPrompt();
+        refreshIncludeAllCheckbox();
         renderEntryViewer();
     } catch (error) {
         console.error("[Town Crier] generation failed", error);
@@ -283,6 +383,7 @@ function onDeleteEntryClick() {
     if (!entry) return;
     removeEntryFromHistory(entry.id);
     syncExtensionPrompt();
+    refreshIncludeAllCheckbox();
     renderEntryViewer();
     toastr.info("Запись удалена");
 }
@@ -292,17 +393,28 @@ function onClearHistoryClick() {
     clearHistory();
     viewIndex = 0;
     syncExtensionPrompt();
+    refreshIncludeAllCheckbox();
     renderEntryViewer();
     toastr.info("История очищена");
 }
 
 function onCopyEntryClick(event) {
-    const entryId = $(event.currentTarget).data("entryId");
+    const entryId = $(event.currentTarget).closest(".tc-result").data("entryId");
     const entry = getHistory().find((e) => e.id === entryId);
     if (entry) {
         navigator.clipboard.writeText(entry.text);
         toastr.info("Скопировано в буфер обмена");
     }
+}
+
+function onPinFlagChange(event) {
+    const entryId = $(event.currentTarget).closest(".tc-result").data("entryId");
+    setEntryPinned(entryId, $(event.currentTarget).prop("checked"));
+}
+
+function onIncludeFlagChange(event) {
+    const entryId = $(event.currentTarget).closest(".tc-result").data("entryId");
+    setEntryIncluded(entryId, $(event.currentTarget).prop("checked"));
 }
 
 function closePopup() {
@@ -351,6 +463,7 @@ function openPopup() {
 function onChatChanged() {
     viewIndex = 0;
     syncExtensionPrompt();
+    refreshIncludeAllCheckbox();
     if ($("#tc_overlay").length) renderEntryViewer();
 }
 
@@ -369,7 +482,7 @@ jQuery(async () => {
 
     $("#tc_include_context").on("input", onIncludeContextInput);
     $("#tc_context_messages").on("input", onContextMessagesInput);
-    $("#tc_include_last_entry").on("input", onIncludeLastEntryInput);
+    $("#tc_include_all_default").on("input", onIncludeAllDefaultInput);
     $("#tc_custom_instructions").on("input", onCustomInstructionsInput);
 
     // Делегированные обработчики — вешаем один раз на document, попап можно
@@ -380,7 +493,9 @@ jQuery(async () => {
     $(document).on("click", ".tc-pager-btn", onPagerClick);
     $(document).on("click", "#tc_entry_delete", onDeleteEntryClick);
     $(document).on("click", "#tc_history_clear", onClearHistoryClick);
-    $(document).on("click", ".tc-result", onCopyEntryClick);
+    $(document).on("click", ".tc-result-body", onCopyEntryClick);
+    $(document).on("input", ".tc-flag-pin", onPinFlagChange);
+    $(document).on("input", ".tc-flag-include", onIncludeFlagChange);
 
     const context = getContext();
     if (context.eventSource && context.event_types?.CHAT_CHANGED) {
@@ -396,6 +511,6 @@ jQuery(async () => {
     $("#extensionsMenu").append(wandButtonHtml);
     $(document).on("click", "#town_crier_wand_button", openPopup);
 
-    // На случай, если тумблер "учитывать в чате" был включён ещё в прошлой сессии.
+    // На случай, если для этого чата уже были отмеченные записи с прошлой сессии.
     syncExtensionPrompt();
 });
