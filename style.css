@@ -44,6 +44,11 @@
     gap: 12px;
 }
 
+#tc_topic_input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
 .tc-genres {
     display: flex;
     flex-wrap: wrap;
@@ -56,6 +61,10 @@
     gap: 6px;
 }
 
+.tc-genre-btn i {
+    color: var(--tc-color, inherit);
+}
+
 .tc-loading {
     opacity: 0.8;
     font-style: italic;
@@ -64,6 +73,63 @@
 .tc-error {
     color: #e06666;
 }
+
+.tc-empty {
+    opacity: 0.7;
+    font-style: italic;
+    text-align: center;
+    padding: 16px 0;
+}
+
+/* --- Пейджер и действия над записью --- */
+
+.tc-entry-viewer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tc-pager {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tc-pager-count {
+    opacity: 0.8;
+    font-size: 0.9em;
+    min-width: 5.5em;
+    text-align: center;
+}
+
+.tc-pager-spacer {
+    flex: 1;
+}
+
+.tc-pager-btn,
+#tc_entry_delete,
+#tc_history_clear {
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    border-radius: 6px;
+    color: inherit;
+    padding: 4px 8px;
+    line-height: 1;
+}
+
+.tc-pager-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+#tc_entry_delete:hover,
+#tc_history_clear:hover {
+    border-color: #e06666;
+    color: #e06666;
+}
+
+/* --- Карточка записи --- */
 
 .tc-result {
     border: 1px dashed var(--SmartThemeBorderColor, #555);
@@ -81,6 +147,13 @@
     gap: 6px;
 }
 
+.tc-result-time {
+    margin-left: auto;
+    font-weight: 400;
+    font-size: 0.75em;
+    opacity: 0.6;
+}
+
 .tc-result::after {
     content: "Нажмите, чтобы скопировать";
     display: block;
@@ -89,14 +162,6 @@
     opacity: 0.6;
 }
 
-.tc-rumor .tc-result-header {
-    color: #cba135;
-}
-
 .tc-newspaper .tc-result-body {
     font-family: Georgia, "Times New Roman", serif;
-}
-
-.tc-wanted .tc-result-header {
-    color: #b5432b;
 }

@@ -9,6 +9,17 @@
                 <input id="tc_include_context" type="checkbox" />
                 <span>Учитывать последние сообщения чата при генерации (для колорита)</span>
             </label>
+
+            <label for="tc_context_messages">
+                <span>Сколько последних сообщений учитывать</span>
+            </label>
+            <input id="tc_context_messages" class="text_pole" type="number" min="1" max="50" step="1" />
+
+            <label class="checkbox_label" for="tc_include_last_entry">
+                <input id="tc_include_last_entry" type="checkbox" />
+                <span>Учитывать последнюю запись глашатая как фоновый штрих в самом чате</span>
+            </label>
+
             <label for="tc_custom_instructions">
                 <span>Доп. указания для генерации (сеттинг, тон, стиль и т.п.)</span>
             </label>
