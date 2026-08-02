@@ -185,11 +185,11 @@
     cursor: pointer;
 }
 
-.tc-result-body {
+.tc-copy-trigger {
     cursor: pointer;
 }
 
-.tc-result-body::after {
+.tc-copy-trigger::after {
     content: "Нажмите, чтобы скопировать";
     display: block;
     margin-top: 10px;
@@ -197,6 +197,58 @@
     opacity: 0.6;
 }
 
-.tc-newspaper .tc-result-body {
+/* --- Превью перед сохранением --- */
+
+.tc-preview-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* --- Газета колонками --- */
+
+.tc-newspaper-body {
     font-family: Georgia, "Times New Roman", serif;
+}
+
+.tc-newspaper-headline {
+    font-weight: 700;
+    font-size: 1.15em;
+    text-align: center;
+    text-transform: uppercase;
+    border-top: 3px double var(--SmartThemeBorderColor, #555);
+    border-bottom: 1px solid var(--SmartThemeBorderColor, #555);
+    padding: 6px 0;
+    margin-bottom: 10px;
+}
+
+.tc-newspaper-article {
+    column-count: 2;
+    column-gap: 16px;
+    column-rule: 1px solid var(--SmartThemeBorderColor, #555);
+    text-align: justify;
+    margin-bottom: 12px;
+}
+
+.tc-newspaper-boxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.tc-newspaper-box {
+    flex: 1 1 45%;
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 0.9em;
+    break-inside: avoid;
+}
+
+.tc-newspaper-box-heading {
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.85em;
+    margin-bottom: 4px;
+    opacity: 0.85;
 }

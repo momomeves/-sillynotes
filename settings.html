@@ -20,6 +20,11 @@
                 <span>Учитывать лорбук (мировую информацию) при генерации</span>
             </label>
 
+            <label for="tc_max_tokens">
+                <span>Максимум токенов на один ответ модели</span>
+            </label>
+            <input id="tc_max_tokens" class="text_pole" type="number" min="50" max="32000" step="50" />
+
             <label class="checkbox_label" for="tc_include_all_default">
                 <input id="tc_include_all_default" type="checkbox" />
                 <span>Учитывать все записи глашатая по умолчанию (влияет на записи текущего чата)</span>
