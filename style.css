@@ -1,0 +1,102 @@
+#tc_overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#tc_modal {
+    width: min(600px, 92vw);
+    max-height: 85vh;
+    overflow-y: auto;
+    background: var(--SmartThemeBlurTintColor, #1e1e1e);
+    color: var(--SmartThemeBodyColor, #e0e0e0);
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+#tc_modal_header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-weight: 600;
+}
+
+#tc_modal_header .tc_close {
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+#tc_modal_header .tc_close:hover {
+    opacity: 1;
+}
+
+#tc_modal_body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.tc-genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tc-genre-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tc-loading {
+    opacity: 0.8;
+    font-style: italic;
+}
+
+.tc-error {
+    color: #e06666;
+}
+
+.tc-result {
+    border: 1px dashed var(--SmartThemeBorderColor, #555);
+    border-radius: 8px;
+    padding: 12px;
+    cursor: pointer;
+    line-height: 1.5;
+}
+
+.tc-result-header {
+    font-weight: 700;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tc-result::after {
+    content: "Нажмите, чтобы скопировать";
+    display: block;
+    margin-top: 10px;
+    font-size: 0.8em;
+    opacity: 0.6;
+}
+
+.tc-rumor .tc-result-header {
+    color: #cba135;
+}
+
+.tc-newspaper .tc-result-body {
+    font-family: Georgia, "Times New Roman", serif;
+}
+
+.tc-wanted .tc-result-header {
+    color: #b5432b;
+}
