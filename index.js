@@ -1,5 +1,6 @@
 // Развлекательное расширение: кнопка на "волшебной палочке", генерирующая
-// слух, газетную заметку, розыскной плакат или объявление по текущему контексту чата.
+// слух, газетную заметку, розыскной плакат, объявление или что-то своё по
+// текущему контексту чата.
 
 import { extension_settings, getContext, renderExtensionTemplateAsync } from "../../../extensions.js";
 import { saveSettingsDebounced, extension_prompt_types, extension_prompt_roles } from "../../../../script.js";
@@ -18,6 +19,7 @@ const HISTORY_LIMIT = 10;
 const defaultSettings = {
     includeContext: true,
     contextMessages: 5,
+    includeLorebook: false,
     customInstructions: "",
 };
 
@@ -37,6 +39,16 @@ const GENRES = {
         cssClass: "tc-newspaper",
         emojiHint: "📰 🖋️",
         prompt: "Напиши короткую заметку в стиле газетной статьи: сначала ЗАГОЛОВОК ЗАГЛАВНЫМИ БУКВАМИ, затем 2-4 абзаца текста в характерном журналистском стиле, описывающих какое-нибудь событие в этом мире.",
+        entertainmentFillers: [
+            "шутка дня",
+            "короткое гадание дня (в духе печенья с предсказанием)",
+            "гороскоп на сегодня для одного-двух знаков зодиака",
+        ],
+        classifiedFillers: [
+            "объявление о продаже — что-то небольшое и колоритное для этого мира",
+            "вакансия — необычная работа, уместная в этом мире",
+            "объявление о мероприятии, празднике или технических работах в городе",
+        ],
     },
     wanted: {
         label: "Розыск",
@@ -54,9 +66,22 @@ const GENRES = {
         emojiHint: "📌 🔔",
         prompt: "Напиши короткое объявление, которое могло бы висеть на доске в таверне или на городской площади этого мира: услуги, находки, приглашения, предупреждения и т.п.",
     },
+    custom: {
+        label: "Своё",
+        icon: "fa-feather-pointed",
+        color: "#8a5fbf",
+        cssClass: "tc-custom",
+        emojiHint: "✨ 📝",
+        // У custom нет своего prompt — вместо него в generateContent() идёт
+        // свободное описание, которое вводит пользователь.
+    },
 };
 
 let viewIndex = 0;
+
+function pickRandom(list) {
+    return list[Math.floor(Math.random() * list.length)];
+}
 
 function ensureSettings() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
@@ -64,6 +89,7 @@ function ensureSettings() {
 
     if (settings.includeContext === undefined) settings.includeContext = defaultSettings.includeContext;
     if (settings.contextMessages === undefined) settings.contextMessages = defaultSettings.contextMessages;
+    if (settings.includeLorebook === undefined) settings.includeLorebook = defaultSettings.includeLorebook;
     if (settings.customInstructions === undefined) settings.customInstructions = defaultSettings.customInstructions;
     if (!settings.historyByChat) settings.historyByChat = {};
 
@@ -176,6 +202,7 @@ function loadSettingsUi() {
     const settings = ensureSettings();
     $("#tc_include_context").prop("checked", settings.includeContext);
     $("#tc_context_messages").val(settings.contextMessages);
+    $("#tc_include_lorebook").prop("checked", settings.includeLorebook);
     $("#tc_custom_instructions").val(settings.customInstructions);
     updateContextMessagesDisabled();
     refreshIncludeAllCheckbox();
@@ -197,6 +224,11 @@ function onContextMessagesInput(event) {
     value = Math.min(50, Math.max(1, value));
     $(event.target).val(value);
     ensureSettings().contextMessages = value;
+    saveSettingsDebounced();
+}
+
+function onIncludeLorebookInput(event) {
+    ensureSettings().includeLorebook = Boolean($(event.target).prop("checked"));
     saveSettingsDebounced();
 }
 
@@ -237,6 +269,61 @@ function buildContextSnippet() {
     return recent ? `Контекст текущей сцены (только для вдохновения, не пересказывай его напрямую):\n${recent}\n\n` : "";
 }
 
+// Сканирует тот же кусок чата, что и buildContextSnippet(), на срабатывания
+// лорбука (World Info) через штатный метод SillyTavern — generateRaw() в
+// обход обычного пайплайна не подмешивает лорбук сам, поэтому делаем это
+// вручную. isDryRun=true, чтобы не тратить одноразовые срабатывания записей.
+async function buildWorldInfoSnippet() {
+    const settings = ensureSettings();
+    if (!settings.includeLorebook) return "";
+
+    const context = getContext();
+    if (typeof context.getWorldInfoPrompt !== "function") return "";
+
+    try {
+        const recentChat = (context.chat || []).slice(-settings.contextMessages);
+        const result = await context.getWorldInfoPrompt(recentChat, context.maxContext, true);
+        const worldInfoText = result?.worldInfoString?.trim();
+        return worldInfoText ? `Мировая информация (лорбук), которая может быть уместна:\n${worldInfoText}\n\n` : "";
+    } catch (error) {
+        console.error("[Town Crier] world info lookup failed", error);
+        return "";
+    }
+}
+
+function summarizeEntry(entry) {
+    if (entry.topic && entry.topic.trim()) return entry.topic.trim();
+    const words = entry.text.split(/\s+/);
+    const snippet = words.slice(0, 15).join(" ");
+    return words.length > 15 ? `${snippet}…` : snippet;
+}
+
+// Короткий дайджест уже существующих записей — чтобы модель не повторяла то,
+// что уже сгенерировала (или, если развивает ту же тему, добавляла новые
+// факты, а не пересказывала прежние). Специально сжато до одной строки на
+// запись, чтобы не раздувать промпт токенами.
+function buildHistoryDigest() {
+    const history = getHistory();
+    if (history.length === 0) return "";
+
+    const lines = [...history]
+        .reverse()
+        .map((e) => {
+            const genre = GENRES[e.genre] || GENRES.notice;
+            return `— (${genre.label}) ${summarizeEntry(e)}`;
+        });
+
+    return `Уже прозвучавшие записи глашатая в этом чате (не повторяй их дословно; если развиваешь ту же тему — добавляй новые факты, а не пересказывай прежние; в остальных случаях создавай что-то новое):\n${lines.join("\n")}\n\n`;
+}
+
+function buildNewspaperExtras() {
+    const genre = GENRES.newspaper;
+    const entertainment = pickRandom(genre.entertainmentFillers);
+    const classified = pickRandom(genre.classifiedFillers);
+
+    return `\n\nПосле основной статьи добавь ещё два коротких блока (каждый — 1-3 предложения), отделив их друг от друга и от статьи разделителем «───» и коротким подзаголовком ЗАГЛАВНЫМИ БУКВАМИ:\n1) ${entertainment};\n2) ${classified}.`;
+}
+
 async function callLLM(systemPrompt, prompt) {
     const context = getContext();
     if (typeof context.generateRaw === "function") {
@@ -246,14 +333,21 @@ async function callLLM(systemPrompt, prompt) {
     return await context.generateQuietPrompt({ quietPrompt: `${systemPrompt}\n\n${prompt}` });
 }
 
-async function generateContent(genreKey, topic) {
+async function generateContent(genreKey, topic, customDescription) {
     const genre = GENRES[genreKey];
     const settings = ensureSettings();
     const systemPrompt = "Ты — генератор колоритного игрового контента для настольной ролевой игры. Отвечай только запрошенным текстом на русском языке, без вступлений и пояснений от себя.";
 
     const styleInstruction = `Можно использовать 1-3 уместных эмодзи (например: ${genre.emojiHint}) и простой текстовый разделитель вроде «⸻» или «───» там, где это оживит текст, но не используй markdown-разметку (никаких **, #, [] и т.п.) и не пиши HTML-теги — только обычный текст.`;
 
-    let prompt = `${buildContextSnippet()}${genre.prompt}\n\n${styleInstruction}`;
+    const corePrompt = genreKey === "custom"
+        ? `Пользователь просит сгенерировать вот что: ${customDescription}\n\nСам подбери жанр, формат и стиль подачи, которые лучше всего подходят под этот запрос.`
+        : genre.prompt;
+
+    const newspaperExtras = genreKey === "newspaper" ? buildNewspaperExtras() : "";
+    const worldInfoSnippet = await buildWorldInfoSnippet();
+
+    let prompt = `${buildContextSnippet()}${worldInfoSnippet}${buildHistoryDigest()}${corePrompt}${newspaperExtras}\n\n${styleInstruction}`;
     if (topic) prompt += `\n\nТема/детали, которые нужно обыграть: ${topic}`;
     if (settings.customInstructions?.trim()) prompt += `\n\nДополнительные указания: ${settings.customInstructions.trim()}`;
 
@@ -306,7 +400,7 @@ function renderEntryViewer() {
         return;
     }
 
-    viewIndex = Math.max(0, Math.min(viewIndex, history.length - 1));
+    viewIndex = ((viewIndex % history.length) + history.length) % history.length;
     const entry = history[viewIndex];
     const genre = GENRES[entry.genre] || GENRES.notice;
     const dateLabel = new Date(entry.timestamp).toLocaleString();
@@ -315,9 +409,9 @@ function renderEntryViewer() {
     $area.html(`
         <div class="tc-entry-viewer">
             <div class="tc-pager">
-                <button type="button" class="tc-pager-btn" data-dir="-1" title="Более свежая запись" ${viewIndex <= 0 ? "disabled" : ""}><i class="fa-solid fa-chevron-left"></i></button>
+                <button type="button" class="tc-pager-btn" data-dir="1" title="Более старая запись"><i class="fa-solid fa-chevron-left"></i></button>
                 <span class="tc-pager-count">${number} из ${history.length}</span>
-                <button type="button" class="tc-pager-btn" data-dir="1" title="Более старая запись" ${viewIndex >= history.length - 1 ? "disabled" : ""}><i class="fa-solid fa-chevron-right"></i></button>
+                <button type="button" class="tc-pager-btn" data-dir="-1" title="Более свежая запись"><i class="fa-solid fa-chevron-right"></i></button>
                 <span class="tc-pager-spacer"></span>
                 <button type="button" id="tc_entry_delete" title="Удалить эту запись"><i class="fa-solid fa-trash"></i></button>
                 <button type="button" id="tc_history_clear" title="Очистить всю историю"><i class="fa-solid fa-trash-can"></i></button>
@@ -338,25 +432,25 @@ function renderEntryViewer() {
     `);
 }
 
-async function onGenerateClick(genreKey) {
+async function onGenerateClick(genreKey, customDescription) {
     if (!hasRoomForNewEntry()) {
         toastr.warning(`Лимит в ${HISTORY_LIMIT} записей достигнут, и все они закреплены. Снимите закрепление хотя бы с одной, чтобы сгенерировать новую.`);
         return;
     }
 
-    const topic = $("#tc_topic_input").val()?.trim();
+    const topic = genreKey === "custom" ? "" : $("#tc_topic_input").val()?.trim();
     const $area = $("#tc_generate_area");
 
     $area.html('<div class="tc-loading"><i class="fa-solid fa-spinner fa-spin"></i> Генерируется…</div>');
 
     try {
-        const text = await generateContent(genreKey, topic);
+        const text = await generateContent(genreKey, topic, customDescription);
         const includeByDefault = getChatBucket(getChatKey()).includeAllByDefault;
 
         addEntryToHistory({
             id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             genre: genreKey,
-            topic: topic || "",
+            topic: genreKey === "custom" ? (customDescription || "") : (topic || ""),
             text,
             timestamp: Date.now(),
             pinned: false,
@@ -367,14 +461,46 @@ async function onGenerateClick(genreKey) {
         syncExtensionPrompt();
         refreshIncludeAllCheckbox();
         renderEntryViewer();
+
+        if (genreKey === "custom") {
+            $("#tc_custom_description").val("");
+            $("#tc_custom_panel").hide();
+        }
     } catch (error) {
         console.error("[Town Crier] generation failed", error);
         $area.html(`<div class="tc-error">Не удалось сгенерировать: ${escapeHtml(error?.message || String(error))}</div>`);
     }
 }
 
+function onGenreButtonClick() {
+    const genreKey = $(this).data("genre");
+
+    if (genreKey === "custom") {
+        $("#tc_custom_panel").toggle();
+        if ($("#tc_custom_panel").is(":visible")) $("#tc_custom_description").trigger("focus");
+        return;
+    }
+
+    onGenerateClick(genreKey);
+}
+
+function onCustomGenerateClick() {
+    const description = $("#tc_custom_description").val()?.trim();
+    if (!description) {
+        toastr.warning("Опишите, что нужно сгенерировать.");
+        return;
+    }
+    onGenerateClick("custom", description);
+}
+
+// Пейджер зациклен: с самой свежей записи "вперёд" уводит на самую старую и
+// наоборот, поэтому кнопки никогда не блокируются на границах.
 function onPagerClick(event) {
-    viewIndex += parseInt($(event.currentTarget).data("dir"), 10);
+    const history = getHistory();
+    if (history.length === 0) return;
+
+    const dir = parseInt($(event.currentTarget).data("dir"), 10);
+    viewIndex = ((viewIndex + dir) % history.length + history.length) % history.length;
     renderEntryViewer();
 }
 
@@ -440,6 +566,10 @@ function openPopup() {
                 <div id="tc_modal_body">
                     <input id="tc_topic_input" class="text_pole" type="text" placeholder="Тема или детали (необязательно)" />
                     <div class="tc-genres">${genreButtons}</div>
+                    <div id="tc_custom_panel" style="display:none;">
+                        <textarea id="tc_custom_description" class="text_pole" rows="2" placeholder="Опишите, что сгенерировать — жанр и стиль модель подберёт сама"></textarea>
+                        <div id="tc_custom_generate" class="menu_button">Сгенерировать</div>
+                    </div>
                     <div id="tc_generate_area"></div>
                 </div>
             </div>
@@ -482,14 +612,14 @@ jQuery(async () => {
 
     $("#tc_include_context").on("input", onIncludeContextInput);
     $("#tc_context_messages").on("input", onContextMessagesInput);
+    $("#tc_include_lorebook").on("input", onIncludeLorebookInput);
     $("#tc_include_all_default").on("input", onIncludeAllDefaultInput);
     $("#tc_custom_instructions").on("input", onCustomInstructionsInput);
 
     // Делегированные обработчики — вешаем один раз на document, попап можно
     // открывать/закрывать сколько угодно раз без повторного связывания.
-    $(document).on("click", ".tc-genre-btn", function () {
-        onGenerateClick($(this).data("genre"));
-    });
+    $(document).on("click", ".tc-genre-btn", onGenreButtonClick);
+    $(document).on("click", "#tc_custom_generate", onCustomGenerateClick);
     $(document).on("click", ".tc-pager-btn", onPagerClick);
     $(document).on("click", "#tc_entry_delete", onDeleteEntryClick);
     $(document).on("click", "#tc_history_clear", onClearHistoryClick);

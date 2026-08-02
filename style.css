@@ -65,6 +65,21 @@
     color: var(--tc-color, inherit);
 }
 
+.tc-genre-btn[data-genre="custom"] {
+    border-style: dashed;
+}
+
+#tc_custom_panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#tc_custom_panel textarea {
+    width: 100%;
+    box-sizing: border-box;
+}
+
 .tc-loading {
     opacity: 0.8;
     font-style: italic;
@@ -116,11 +131,6 @@
     color: inherit;
     padding: 4px 8px;
     line-height: 1;
-}
-
-.tc-pager-btn:disabled {
-    opacity: 0.3;
-    cursor: default;
 }
 
 #tc_entry_delete:hover,
