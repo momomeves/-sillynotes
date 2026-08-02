@@ -720,9 +720,42 @@ function onIncludeFlagChange(event) {
     setEntryIncluded(entryId, $(event.currentTarget).prop("checked"));
 }
 
+// На части мобильных браузеров "position: fixed; inset: 0" привязывается не к
+// реально видимой области экрана, а к так называемому layout viewport — он
+// может быть выше/шире того, что фактически видно (из-за адресной строки,
+// экранной клавиатуры и т.п.), и попап "уезжает" вверх/вбок. window.visualViewport
+// — специально для этого существующий браузерный API, который даёт координаты
+// именно видимой области; когда он доступен, позиционируем оверлей явно по нему
+// вместо того, чтобы полагаться на то, как браузер сам интерпретирует inset:0.
+function positionOverlayToVisualViewport() {
+    const vv = window.visualViewport;
+    const $overlay = $("#tc_overlay");
+    if (!vv || !$overlay.length) return;
+
+    $overlay.css({
+        top: `${vv.offsetTop}px`,
+        left: `${vv.offsetLeft}px`,
+        width: `${vv.width}px`,
+        height: `${vv.height}px`,
+    });
+}
+
+function bindViewportTracking() {
+    if (!window.visualViewport) return;
+    window.visualViewport.addEventListener("resize", positionOverlayToVisualViewport);
+    window.visualViewport.addEventListener("scroll", positionOverlayToVisualViewport);
+}
+
+function unbindViewportTracking() {
+    if (!window.visualViewport) return;
+    window.visualViewport.removeEventListener("resize", positionOverlayToVisualViewport);
+    window.visualViewport.removeEventListener("scroll", positionOverlayToVisualViewport);
+}
+
 function closePopup() {
     $("#tc_overlay").remove();
     $(document).off("keydown.tc");
+    unbindViewportTracking();
 }
 
 function openPopup() {
@@ -756,6 +789,8 @@ function openPopup() {
 
     $("body").append(html);
     renderEntryViewer();
+    positionOverlayToVisualViewport();
+    bindViewportTracking();
 
     $("#tc_overlay").on("click", (event) => {
         if (event.target.id === "tc_overlay") closePopup();
