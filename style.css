@@ -1,3 +1,18 @@
+/*
+ * Ширину/высоту модалки специально не завязываем на vw/vh — на части мобильных
+ * браузеров эти единицы считаются от "layout viewport", который может быть
+ * шире реального видимого экрана, и элемент вылезает за край. Вместо этого
+ * #tc_overlay (position:fixed + inset:0) сам всегда точно равен видимой
+ * области, а модалка берёт проценты/max-height от НЕГО — это надёжно на любом
+ * экране, включая телефон.
+ */
+#tc_overlay,
+#tc_overlay *,
+#tc_overlay *::before,
+#tc_overlay *::after {
+    box-sizing: border-box;
+}
+
 #tc_overlay {
     position: fixed;
     inset: 0;
@@ -6,11 +21,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 16px;
 }
 
 #tc_modal {
-    width: min(600px, 92vw);
-    max-height: 85vh;
+    width: 100%;
+    max-width: 600px;
+    max-height: 100%;
+    overflow-x: hidden;
     overflow-y: auto;
     background: var(--SmartThemeBlurTintColor, #1e1e1e);
     color: var(--SmartThemeBodyColor, #e0e0e0);
@@ -42,6 +60,8 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    overflow-wrap: break-word;
+    word-break: break-word;
 }
 
 #tc_topic_input {
@@ -107,6 +127,7 @@
 .tc-pager {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
@@ -197,6 +218,12 @@
     opacity: 0.6;
 }
 
+.tc-result-body {
+    background: var(--black30a, rgba(0, 0, 0, 0.35));
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+
 /* --- Превью перед сохранением --- */
 
 .tc-preview-actions {
@@ -223,10 +250,16 @@
 }
 
 .tc-newspaper-article {
-    column-count: 2;
+    /* column-width — это МИНИМУМ ширины колонки, а не фиксированная величина:
+       браузер сам схлопнет 2 колонки в 1, если на узком (телефонном) экране
+       для двух по 180px просто нет места — без отдельного media query. */
+    columns: 180px 2;
     column-gap: 16px;
     column-rule: 1px solid var(--SmartThemeBorderColor, #555);
     text-align: justify;
+    background: var(--black30a, rgba(0, 0, 0, 0.35));
+    border-radius: 10px;
+    padding: 10px 12px;
     margin-bottom: 12px;
 }
 
@@ -238,8 +271,10 @@
 
 .tc-newspaper-box {
     flex: 1 1 45%;
+    min-width: 140px;
     border: 1px solid var(--SmartThemeBorderColor, #555);
     border-radius: 6px;
+    background: var(--black30a, rgba(0, 0, 0, 0.35));
     padding: 8px 10px;
     font-size: 0.9em;
     break-inside: avoid;
